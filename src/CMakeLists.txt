@@ -1,4 +1,5 @@
 add_executable(runtime main.c)
+target_link_options(runtime PRIVATE -T ${CMAKE_CURRENT_SOURCE_DIR}/data_sections.ld)
 target_link_libraries(runtime -static PkgConfig::FUSE PkgConfig::SQUASHFUSE_LL PkgConfig::ZSTD PkgConfig::ZLIB)
 target_compile_definitions(runtime PRIVATE -D_FILE_OFFSET_BITS=64)
 
