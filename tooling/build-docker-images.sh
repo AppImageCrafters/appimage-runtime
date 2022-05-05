@@ -4,8 +4,8 @@ SCRIPT_PATH=$(realpath "$0")
 SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
 
 while IFS= read -r -d '' dockerfile; do
-  TARGET_ARCH=$(basename "$dockerfile" | cut -f 2 -d .)
-  TARGET_IMAGE_NAME="azubieta/appimage-runtime-build-env-$TARGET_ARCH"
+  TOOLCHAIN=$(basename "$dockerfile" | cut -f 2 -d .)
+  TARGET_IMAGE_NAME="azubieta/appimage-runtime-build-env-$TOOLCHAIN"
 
   echo "Building $TARGET_IMAGE_NAME"
   docker build "$SCRIPT_DIR" -f "$dockerfile" -t "$TARGET_IMAGE_NAME"

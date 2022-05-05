@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x
 
 SCRIPT_PATH=$(realpath "$0")
 SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
@@ -13,21 +14,21 @@ if [ -z "$BUILD_TYPE" ]; then
 fi
 
 ## Check Arch
-if [ -z "$TARGET_ARCH" ]; then
+if [ -z "$TOOLCHAIN" ]; then
   echo ""
-  echo "Missing TARGET_ARCH environment. Please define it before calling $(basename "$0")"
+  echo "Missing TOOLCHAIN environment. Please define it before calling $(basename "$0")"
   echo ""
   exit 1
 else
-  TOOLCHAIN_PATH="$TOOLCHAIN_DIR/$TARGET_ARCH-toolchain.cmake"
+  TOOLCHAIN_PATH="$TOOLCHAIN_DIR/$TOOLCHAIN-toolchain.cmake"
   if [[ ! -f "$TOOLCHAIN_PATH" ]]; then
-    echo "Unknown TARGET_ARCH: $TARGET_ARCH"
+    echo "Unknown TOOLCHAIN: $TOOLCHAIN"
     exit
   fi
 fi
 
-BUILD_DIR=$PROJECT_SRCS/cmake-build-"$BUILD_TYPE"-"$TARGET_ARCH"
-rm -rf "$BUILD_DIR" || true
+BUILD_DIR=$PROJECT_SRCS/cmake-build-"$BUILD_TYPE"-"$TOOLCHAIN"
+#rm -rf "$BUILD_DIR" || true
 mkdir -p "$BUILD_DIR" && cd "$BUILD_DIR" || exit 1
 
 cmake "$PROJECT_SRCS" -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
