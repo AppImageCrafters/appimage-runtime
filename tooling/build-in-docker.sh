@@ -13,18 +13,18 @@ if [ -z "$BUILD_TYPE" ]; then
 fi
 
 ## Check Arch
-if [ -z "$TARGET_ARCH" ]; then
+if [ -z "$TOOLCHAIN" ]; then
   echo ""
-  echo "Missing TARGET_ARCH environment. Please define it before calling $(basename "$0")"
+  echo "Missing TOOLCHAIN environment. Please define it before calling $(basename "$0")"
   echo ""
   exit 1
 else
-  TOOLCHAIN_PATH="$TOOLCHAIN_DIR/$TARGET_ARCH-toolchain.cmake"
+  TOOLCHAIN_PATH="$TOOLCHAIN_DIR/$TOOLCHAIN-toolchain.cmake"
   if [[ ! -f "$TOOLCHAIN_PATH" ]]; then
-    echo "Unknown TARGET_ARCH: $TARGET_ARCH"
+    echo "Unknown TOOLCHAIN: $TOOLCHAIN"
     exit
   fi
 fi
 
-DOCKER_IMAGE_NAME="azubieta/appimage-runtime-build-env-$TARGET_ARCH"
+DOCKER_IMAGE_NAME="azubieta/appimage-runtime-build-env-$TOOLCHAIN"
 docker run -v "$PROJECT_SRCS:/src" "$DOCKER_IMAGE_NAME" tooling/build.sh "$BUILD_TYPE"
