@@ -19,7 +19,8 @@ externalproject_add(
             -D examples=false
             -D b_pie=false
             -D c_link_args=-static
-    -D prefix=${EXTERNAL_TARGETS_PREFIX}
+            -D prefix=${EXTERNAL_TARGETS_PREFIX}
+            -D buildtype=minsize
     BUILD_COMMAND ninja
     INSTALL_COMMAND ninja install
     BYPRODUCTS "${FUSE_LIBS}"
