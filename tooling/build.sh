@@ -28,7 +28,7 @@ else
 fi
 
 BUILD_DIR=$PROJECT_SRCS/cmake-build-"$BUILD_TYPE"-"$TOOLCHAIN"
-#rm -rf "$BUILD_DIR" || true
+rm -rf "$BUILD_DIR" || true
 mkdir -p "$BUILD_DIR" && cd "$BUILD_DIR" || exit 1
 
 cmake "$PROJECT_SRCS" -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
