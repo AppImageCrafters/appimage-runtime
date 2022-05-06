@@ -6,7 +6,7 @@ if ("${STATIC}")
     set(EXTRA_LINK_ARGS -static)
 endif ()
 
-target_link_libraries(runtime libfuse::static squashfuse::static PkgConfig::ZSTD PkgConfig::ZLIB ${EXTRA_LINK_ARGS})
+target_link_libraries(runtime libfuse::static squashfuse::static zstd::static zlib::static ${EXTRA_LINK_ARGS})
 target_compile_definitions(runtime PRIVATE -D_FILE_OFFSET_BITS=64)
 
 # add type 2 magic bytes
