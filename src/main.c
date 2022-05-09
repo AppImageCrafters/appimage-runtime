@@ -2,6 +2,8 @@
  *
  * Copyright (c) 2004-22 Simon Peter
  * Portions Copyright (c) 2007 Alexander Larsson
+ * Portions from WjCryptLib_Md5 originally written by Alexander Peslyak,
+   modified by WaterJuice retaining Public Domain license
  *
  * All Rights Reserved.
  *
@@ -25,19 +27,18 @@
  *
  **************************************************************************/
 
+#ident "AppImage by Simon Peter, https://appimage.org/"
+
 #define _GNU_SOURCE
 
 #include <stddef.h>
 
-// Like in https://github.com/vasi/squashfuse/blob/master/ll_main.c
 #include <squashfuse/ll.h>
 #include <squashfuse/fuseprivate.h>
-#include <squashfuse/nonstd.h>
 
 extern dev_t sqfs_makedev(int maj, int min);
 
-extern int sqfs_opt_proc(void *data, const char *arg, int key,
-                         struct fuse_args *outargs);
+extern int sqfs_opt_proc(void* data, const char* arg, int key, struct fuse_args* outargs);
 
 #include <limits.h>
 #include <stdlib.h>
@@ -54,6 +55,25 @@ extern int sqfs_opt_proc(void *data, const char *arg, int key,
 #include <sys/wait.h>
 #include <fnmatch.h>
 #include <sys/mman.h>
+
+#include <stdint.h>
+
+typedef struct {
+    uint32_t lo;
+    uint32_t hi;
+    uint32_t a;
+    uint32_t b;
+    uint32_t c;
+    uint32_t d;
+    uint8_t buffer[64];
+    uint32_t block[16];
+} Md5Context;
+
+#define MD5_HASH_SIZE (128 / 8)
+
+typedef struct {
+    uint8_t bytes[MD5_HASH_SIZE];
+} MD5_HASH;
 
 typedef uint16_t Elf32_Half;
 typedef uint16_t Elf64_Half;
@@ -155,7 +175,7 @@ typedef struct elf32_note {
 
 typedef Elf32_Nhdr Elf_Nhdr;
 
-static char *fname;
+static char* fname;
 static Elf64_Ehdr ehdr;
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -166,51 +186,47 @@ static Elf64_Ehdr ehdr;
 #error "Unknown machine endian"
 #endif
 
-static uint16_t file16_to_cpu(uint16_t val)
-{
+static uint16_t file16_to_cpu(uint16_t val) {
     if (ehdr.e_ident[EI_DATA] != ELFDATANATIVE)
         val = bswap_16(val);
     return val;
 }
 
-static uint32_t file32_to_cpu(uint32_t val)
-{
+static uint32_t file32_to_cpu(uint32_t val) {
     if (ehdr.e_ident[EI_DATA] != ELFDATANATIVE)
         val = bswap_32(val);
     return val;
 }
 
-static uint64_t file64_to_cpu(uint64_t val)
-{
+static uint64_t file64_to_cpu(uint64_t val) {
     if (ehdr.e_ident[EI_DATA] != ELFDATANATIVE)
         val = bswap_64(val);
     return val;
 }
 
-static off_t read_elf32(FILE* fd)
-{
+static off_t read_elf32(FILE* fd) {
     Elf32_Ehdr ehdr32;
     Elf32_Shdr shdr32;
     off_t last_shdr_offset;
     ssize_t ret;
-    off_t  sht_end, last_section_end;
+    off_t sht_end, last_section_end;
 
     fseeko(fd, 0, SEEK_SET);
     ret = fread(&ehdr32, 1, sizeof(ehdr32), fd);
-    if (ret < 0 || (size_t)ret != sizeof(ehdr32)) {
+    if (ret < 0 || (size_t) ret != sizeof(ehdr32)) {
         fprintf(stderr, "Read of ELF header from %s failed: %s\n",
                 fname, strerror(errno));
         return -1;
     }
 
-    ehdr.e_shoff		= file32_to_cpu(ehdr32.e_shoff);
-    ehdr.e_shentsize	= file16_to_cpu(ehdr32.e_shentsize);
-    ehdr.e_shnum		= file16_to_cpu(ehdr32.e_shnum);
+    ehdr.e_shoff = file32_to_cpu(ehdr32.e_shoff);
+    ehdr.e_shentsize = file16_to_cpu(ehdr32.e_shentsize);
+    ehdr.e_shnum = file16_to_cpu(ehdr32.e_shnum);
 
     last_shdr_offset = ehdr.e_shoff + (ehdr.e_shentsize * (ehdr.e_shnum - 1));
     fseeko(fd, last_shdr_offset, SEEK_SET);
     ret = fread(&shdr32, 1, sizeof(shdr32), fd);
-    if (ret < 0 || (size_t)ret != sizeof(shdr32)) {
+    if (ret < 0 || (size_t) ret != sizeof(shdr32)) {
         fprintf(stderr, "Read of ELF section header from %s failed: %s\n",
                 fname, strerror(errno));
         return -1;
@@ -222,8 +238,7 @@ static off_t read_elf32(FILE* fd)
     return sht_end > last_section_end ? sht_end : last_section_end;
 }
 
-static off_t read_elf64(FILE* fd)
-{
+static off_t read_elf64(FILE* fd) {
     Elf64_Ehdr ehdr64;
     Elf64_Shdr shdr64;
     off_t last_shdr_offset;
@@ -232,15 +247,15 @@ static off_t read_elf64(FILE* fd)
 
     fseeko(fd, 0, SEEK_SET);
     ret = fread(&ehdr64, 1, sizeof(ehdr64), fd);
-    if (ret < 0 || (size_t)ret != sizeof(ehdr64)) {
+    if (ret < 0 || (size_t) ret != sizeof(ehdr64)) {
         fprintf(stderr, "Read of ELF header from %s failed: %s\n",
                 fname, strerror(errno));
         return -1;
     }
 
-    ehdr.e_shoff		= file64_to_cpu(ehdr64.e_shoff);
-    ehdr.e_shentsize	= file16_to_cpu(ehdr64.e_shentsize);
-    ehdr.e_shnum		= file16_to_cpu(ehdr64.e_shnum);
+    ehdr.e_shoff = file64_to_cpu(ehdr64.e_shoff);
+    ehdr.e_shentsize = file16_to_cpu(ehdr64.e_shentsize);
+    ehdr.e_shnum = file16_to_cpu(ehdr64.e_shnum);
 
     last_shdr_offset = ehdr.e_shoff + (ehdr.e_shentsize * (ehdr.e_shnum - 1));
     fseeko(fd, last_shdr_offset, SEEK_SET);
@@ -275,7 +290,7 @@ ssize_t appimage_get_elf_size(const char* fname) {
         return -1;
     }
     if ((ehdr.e_ident[EI_DATA] != ELFDATA2LSB) &&
-    (ehdr.e_ident[EI_DATA] != ELFDATA2MSB)) {
+        (ehdr.e_ident[EI_DATA] != ELFDATA2MSB)) {
         fprintf(stderr, "Unknown ELF data order %u\n",
                 ehdr.e_ident[EI_DATA]);
         return -1;
@@ -294,56 +309,6 @@ ssize_t appimage_get_elf_size(const char* fname) {
 }
 
 /* Return the offset, and the length of an ELF section with a given name in a given ELF file */
-bool appimage_get_elf_section_offset_and_length(const char* fname, const char* section_name, unsigned long* offset, unsigned long* length) {
-    uint8_t* data;
-    int i;
-    int fd = open(fname, O_RDONLY);
-    size_t map_size = (size_t) lseek(fd, 0, SEEK_END);
-
-    data = mmap(NULL, map_size, PROT_READ, MAP_SHARED, fd, 0);
-    close(fd);
-
-    // this trick works as both 32 and 64 bit ELF files start with the e_ident[EI_NINDENT] section
-    unsigned char class = data[EI_CLASS];
-
-    if (class == ELFCLASS32) {
-        Elf32_Ehdr* elf;
-        Elf32_Shdr* shdr;
-
-        elf = (Elf32_Ehdr*) data;
-        shdr = (Elf32_Shdr*) (data + ((Elf32_Ehdr*) elf)->e_shoff);
-
-        char* strTab = (char*) (data + shdr[elf->e_shstrndx].sh_offset);
-        for (i = 0; i < elf->e_shnum; i++) {
-            if (strcmp(&strTab[shdr[i].sh_name], section_name) == 0) {
-                *offset = shdr[i].sh_offset;
-                *length = shdr[i].sh_size;
-            }
-        }
-    } else if (class == ELFCLASS64) {
-        Elf64_Ehdr* elf;
-        Elf64_Shdr* shdr;
-
-        elf = (Elf64_Ehdr*) data;
-        shdr = (Elf64_Shdr*) (data + elf->e_shoff);
-
-        char* strTab = (char*) (data + shdr[elf->e_shstrndx].sh_offset);
-        for (i = 0; i < elf->e_shnum; i++) {
-            if (strcmp(&strTab[shdr[i].sh_name], section_name) == 0) {
-                *offset = shdr[i].sh_offset;
-                *length = shdr[i].sh_size;
-            }
-        }
-    } else {
-        fprintf(stderr, "Platforms other than 32-bit/64-bit are currently not supported!");
-        munmap(data, map_size);
-        return false;
-    }
-
-    munmap(data, map_size);
-    return true;
-}
-
 char* read_file_offset_length(const char* fname, unsigned long offset, unsigned long length) {
     FILE* f;
     if ((f = fopen(fname, "r")) == NULL) {
@@ -360,36 +325,6 @@ char* read_file_offset_length(const char* fname, unsigned long offset, unsigned 
     return buffer;
 }
 
-int appimage_print_hex(char* fname, unsigned long offset, unsigned long length) {
-    char* data;
-    if ((data = read_file_offset_length(fname, offset, length)) == NULL) {
-        return 1;
-    }
-
-    for (long long k = 0; k < length && data[k] != '\0'; k++) {
-        printf("%x", data[k]);
-    }
-
-    free(data);
-
-    printf("\n");
-
-    return 0;
-}
-
-int appimage_print_binary(char* fname, unsigned long offset, unsigned long length) {
-    char* data;
-    if ((data = read_file_offset_length(fname, offset, length)) == NULL) {
-        return 1;
-    }
-
-    printf("%s\n", data);
-
-    free(data);
-
-    return 0;
-}
-
 
 /* Exit status to use when launching an AppImage fails.
  * For applications that assign meanings to exit status codes (e.g. rsync),
@@ -403,29 +338,28 @@ struct stat st;
 
 static ssize_t fs_offset; // The offset at which a filesystem image is expected = end of this ELF
 
-static void die(const char *msg) {
+static void die(const char* msg) {
     fprintf(stderr, "%s\n", msg);
     exit(EXIT_EXECERROR);
 }
 
 /* Check whether directory is writable */
 bool is_writable_directory(char* str) {
-    if(access(str, W_OK) == 0) {
+    if (access(str, W_OK) == 0) {
         return true;
     } else {
         return false;
     }
 }
 
-bool startsWith(const char *pre, const char *str)
-{
+bool startsWith(const char* pre, const char* str) {
     size_t lenpre = strlen(pre),
-    lenstr = strlen(str);
+            lenstr = strlen(str);
     return lenstr < lenpre ? false : strncmp(pre, str, lenpre) == 0;
 }
 
 /* Fill in a stat structure. Does not set st_ino */
-sqfs_err private_sqfs_stat(sqfs *fs, sqfs_inode *inode, struct stat *st) {
+sqfs_err private_sqfs_stat(sqfs* fs, sqfs_inode* inode, struct stat* st) {
     sqfs_err err = SQFS_OK;
     uid_t id;
 
@@ -461,24 +395,23 @@ sqfs_err private_sqfs_stat(sqfs *fs, sqfs_inode *inode, struct stat *st) {
 
 /* ================= End ELF parsing */
 
-extern int fusefs_main(int argc, char *argv[], void (*mounted) (void));
+extern int fusefs_main(int argc, char* argv[], void (* mounted)(void));
 // extern void ext2_quit(void);
 
 static pid_t fuse_pid;
 static int keepalive_pipe[2];
 
-static void *
-write_pipe_thread (void *arg)
-{
+static void*
+write_pipe_thread(void* arg) {
     char c[32];
     int res;
     //  sprintf(stderr, "Called write_pipe_thread");
-    memset (c, 'x', sizeof (c));
+    memset(c, 'x', sizeof(c));
     while (1) {
         /* Write until we block, on broken pipe, exit */
-        res = write (keepalive_pipe[1], c, sizeof (c));
+        res = write(keepalive_pipe[1], c, sizeof(c));
         if (res == -1) {
-            kill (fuse_pid, SIGTERM);
+            kill(fuse_pid, SIGTERM);
             break;
         }
     }
@@ -486,36 +419,33 @@ write_pipe_thread (void *arg)
 }
 
 void
-fuse_mounted (void)
-{
+fuse_mounted(void) {
     pthread_t thread;
     fuse_pid = getpid();
     pthread_create(&thread, NULL, write_pipe_thread, keepalive_pipe);
 }
 
-char* getArg(int argc, char *argv[],char chr)
-{
+char* getArg(int argc, char* argv[], char chr) {
     int i;
-    for (i=1; i<argc; ++i)
-        if ((argv[i][0]=='-') && (argv[i][1]==chr))
+    for (i = 1; i < argc; ++i)
+        if ((argv[i][0] == '-') && (argv[i][1] == chr))
             return &(argv[i][2]);
-        return NULL;
+    return NULL;
 }
 
 /* mkdir -p implemented in C, needed for https://github.com/AppImage/AppImageKit/issues/333
  * https://gist.github.com/JonathonReinhart/8c0d90191c38af2dcadb102c4e202950 */
 int
-mkdir_p(const char* const path)
-{
+mkdir_p(const char* const path) {
     /* Adapted from http://stackoverflow.com/a/2336245/119527 */
     const size_t len = strlen(path);
     char _path[PATH_MAX];
-    char *p;
+    char* p;
 
     errno = 0;
 
     /* Copy string so its mutable */
-    if (len > sizeof(_path)-1) {
+    if (len > sizeof(_path) - 1) {
         errno = ENAMETOOLONG;
         return -1;
     }
@@ -544,7 +474,81 @@ mkdir_p(const char* const path)
     return 0;
 }
 
-bool extract_appimage(const char* const appimage_path, const char* const _prefix, const char* const _pattern, const bool overwrite, const bool verbose) {
+void print_help(const char* appimage_path) {
+    // TODO: "--appimage-list                 List content from embedded filesystem image\n"
+    fprintf(stderr,
+            "AppImage options:\n\n"
+            "  --appimage-extract [<pattern>]  Extract content from embedded filesystem image\n"
+            "                                  If pattern is passed, only extract matching files\n"
+            "  --appimage-help                 Print this help\n"
+            "  --appimage-mount                Mount embedded filesystem image and print\n"
+            "                                  mount point and wait for kill with Ctrl-C\n"
+            "  --appimage-offset               Print byte offset to start of embedded\n"
+            "                                  filesystem image\n"
+            "  --appimage-portable-home        Create a portable home folder to use as $HOME\n"
+            "  --appimage-portable-config      Create a portable config folder to use as\n"
+            "                                  $XDG_CONFIG_HOME\n"
+            "  --appimage-signature            Print digital signature embedded in AppImage\n"
+            "  --appimage-updateinfo[rmation]  Print update info embedded in AppImage\n"
+            "  --appimage-version              Print version of AppImageKit\n"
+            "\n"
+            "Portable home:\n"
+            "\n"
+            "  If you would like the application contained inside this AppImage to store its\n"
+            "  data alongside this AppImage rather than in your home directory, then you can\n"
+            "  place a directory named\n"
+            "\n"
+            "  %s.home\n"
+            "\n"
+            "  Or you can invoke this AppImage with the --appimage-portable-home option,\n"
+            "  which will create this directory for you. As long as the directory exists\n"
+            "  and is neither moved nor renamed, the application contained inside this\n"
+            "  AppImage to store its data in this directory rather than in your home\n"
+            "  directory\n"
+            "\n"
+            "License:\n"
+            "  This executable contains code from\n"
+            "  * runtime, licensed under the terms of\n"
+            "    https://github.com/probonopd/static-tools/blob/master/LICENSE\n"
+            "  * musl libc, licensed under the terms of\n"
+            "    https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT\n"
+            "  * libfuse, licensed under the terms of\n"
+            "    https://github.com/libfuse/libfuse/blob/master/LGPL2.txt\n"
+            "  * squashfuse, licensed under the terms of\n"
+            "    https://github.com/vasi/squashfuse/blob/master/LICENSE\n"
+            "  * libzstd, licensed under the terms of\n"
+            "    https://github.com/facebook/zstd/blob/dev/LICENSE\n"
+            "Please see https://github.com/probonopd/static-tools/\n"
+            "for information on how to obtain and build the source code\n", appimage_path);
+}
+
+void portable_option(const char* arg, const char* appimage_path, const char* name) {
+    char option[32];
+    sprintf(option, "appimage-portable-%s", name);
+
+    if (arg && strcmp(arg, option) == 0) {
+        char portable_dir[PATH_MAX];
+        char fullpath[PATH_MAX];
+
+        ssize_t length = readlink(appimage_path, fullpath, sizeof(fullpath));
+        if (length < 0) {
+            fprintf(stderr, "Error getting realpath for %s\n", appimage_path);
+            exit(EXIT_FAILURE);
+        }
+        fullpath[length] = '\0';
+
+        sprintf(portable_dir, "%s.%s", fullpath, name);
+        if (!mkdir(portable_dir, S_IRWXU))
+            fprintf(stderr, "Portable %s directory created at %s\n", name, portable_dir);
+        else
+            fprintf(stderr, "Error creating portable %s directory at %s: %s\n", name, portable_dir, strerror(errno));
+
+        exit(0);
+    }
+}
+
+bool extract_appimage(const char* const appimage_path, const char* const _prefix, const char* const _pattern,
+                      const bool overwrite, const bool verbose) {
     sqfs_err err = SQFS_OK;
     sqfs_traverse trv;
     sqfs fs;
@@ -630,8 +634,9 @@ bool extract_appimage(const char* const appimage_path, const char* const _prefix
                         }
                     } else {
                         struct stat st;
-                        if (!overwrite && stat(prefixed_path_to_extract, &st) == 0 && st.st_size == inode.xtra.reg.file_size) {
-                            fprintf(stderr, "File exists and file size matches, skipping\n");
+                        if (!overwrite && stat(prefixed_path_to_extract, &st) == 0 &&
+                            st.st_size == inode.xtra.reg.file_size) {
+                            // fprintf(stderr, "File exists and file size matches, skipping\n");
                             continue;
                         }
 
@@ -678,7 +683,8 @@ bool extract_appimage(const char* const appimage_path, const char* const _prefix
                         if (!rv)
                             break;
                     }
-                } else if (inode.base.inode_type == SQUASHFS_SYMLINK_TYPE || inode.base.inode_type == SQUASHFS_LSYMLINK_TYPE) {
+                } else if (inode.base.inode_type == SQUASHFS_SYMLINK_TYPE ||
+                           inode.base.inode_type == SQUASHFS_LSYMLINK_TYPE) {
                     size_t size;
                     sqfs_readlink(&fs, &inode, NULL, &size);
                     char buf[size];
@@ -718,6 +724,56 @@ bool extract_appimage(const char* const appimage_path, const char* const _prefix
     return rv;
 }
 
+int rm_recursive_callback(const char* path, const struct stat* stat, const int type, struct FTW* ftw) {
+    (void) stat;
+    (void) ftw;
+
+    switch (type) {
+        case FTW_NS:
+        case FTW_DNR:
+            fprintf(stderr, "%s: ftw error: %s\n",
+                    path, strerror(errno));
+            return 1;
+
+        case FTW_D:
+            // ignore directories at first, will be handled by FTW_DP
+            break;
+
+        case FTW_F:
+        case FTW_SL:
+        case FTW_SLN:
+            if (remove(path) != 0) {
+                fprintf(stderr, "Failed to remove %s: %s\n", path, strerror(errno));
+                return false;
+            }
+            break;
+
+
+        case FTW_DP:
+            if (rmdir(path) != 0) {
+                fprintf(stderr, "Failed to remove directory %s: %s\n", path, strerror(errno));
+                return false;
+            }
+            break;
+
+        default:
+            fprintf(stderr, "Unexpected fts_info\n");
+            return 1;
+    }
+
+    return 0;
+};
+
+bool rm_recursive(const char* const path) {
+    // FTW_DEPTH: perform depth-first search to make sure files are deleted before the containing directories
+    // FTW_MOUNT: prevent deletion of files on other mounted filesystems
+    // FTW_PHYS: do not follow symlinks, but report symlinks as such; this way, the symlink targets, which might point
+    //           to locations outside path will not be deleted accidentally (attackers might abuse this)
+    int rv = nftw(path, &rm_recursive_callback, 0, FTW_DEPTH | FTW_MOUNT | FTW_PHYS);
+
+    return rv == 0;
+}
+
 void build_mount_point(char* mount_dir, const char* const argv0, char const* const temp_base, const size_t templen) {
     const size_t maxnamelen = 6;
 
@@ -733,11 +789,11 @@ void build_mount_point(char* mount_dir, const char* const argv0, char const* con
     strcpy(mount_dir, temp_base);
     strncpy(mount_dir + templen, "/.mount_", 8);
     strncpy(mount_dir + templen + 8, path_basename, namelen);
-    strncpy(mount_dir+templen+8+namelen, "XXXXXX", 6);
-    mount_dir[templen+8+namelen+6] = 0; // null terminate destination
+    strncpy(mount_dir + templen + 8 + namelen, "XXXXXX", 6);
+    mount_dir[templen + 8 + namelen + 6] = 0; // null terminate destination
 }
 
-int fusefs_main(int argc, char *argv[], void (*mounted) (void)) {
+int fusefs_main(int argc, char* argv[], void (* mounted)(void)) {
     struct fuse_args args;
     sqfs_opts opts;
 
@@ -751,7 +807,7 @@ int fusefs_main(int argc, char *argv[], void (*mounted) (void)) {
 #endif
 
     int err;
-    sqfs_ll *ll;
+    sqfs_ll* ll;
     struct fuse_opt fuse_opts[] = {
             {"offset=%zu", offsetof(sqfs_opts, offset), 0},
             {"timeout=%u", offsetof(sqfs_opts, idle_timeout_secs), 0},
@@ -760,20 +816,20 @@ int fusefs_main(int argc, char *argv[], void (*mounted) (void)) {
 
     struct fuse_lowlevel_ops sqfs_ll_ops;
     memset(&sqfs_ll_ops, 0, sizeof(sqfs_ll_ops));
-    sqfs_ll_ops.getattr		= sqfs_ll_op_getattr;
-    sqfs_ll_ops.opendir		= sqfs_ll_op_opendir;
-    sqfs_ll_ops.releasedir	= sqfs_ll_op_releasedir;
-    sqfs_ll_ops.readdir		= sqfs_ll_op_readdir;
-    sqfs_ll_ops.lookup		= sqfs_ll_op_lookup;
-    sqfs_ll_ops.open		= sqfs_ll_op_open;
-    sqfs_ll_ops.create		= sqfs_ll_op_create;
-    sqfs_ll_ops.release		= sqfs_ll_op_release;
-    sqfs_ll_ops.read		= sqfs_ll_op_read;
-    sqfs_ll_ops.readlink	= sqfs_ll_op_readlink;
-    sqfs_ll_ops.listxattr	= sqfs_ll_op_listxattr;
-    sqfs_ll_ops.getxattr	= sqfs_ll_op_getxattr;
-    sqfs_ll_ops.forget		= sqfs_ll_op_forget;
-    sqfs_ll_ops.statfs    = stfs_ll_op_statfs;
+    sqfs_ll_ops.getattr = sqfs_ll_op_getattr;
+    sqfs_ll_ops.opendir = sqfs_ll_op_opendir;
+    sqfs_ll_ops.releasedir = sqfs_ll_op_releasedir;
+    sqfs_ll_ops.readdir = sqfs_ll_op_readdir;
+    sqfs_ll_ops.lookup = sqfs_ll_op_lookup;
+    sqfs_ll_ops.open = sqfs_ll_op_open;
+    sqfs_ll_ops.create = sqfs_ll_op_create;
+    sqfs_ll_ops.release = sqfs_ll_op_release;
+    sqfs_ll_ops.read = sqfs_ll_op_read;
+    sqfs_ll_ops.readlink = sqfs_ll_op_readlink;
+    sqfs_ll_ops.listxattr = sqfs_ll_op_listxattr;
+    sqfs_ll_ops.getxattr = sqfs_ll_op_getxattr;
+    sqfs_ll_ops.forget = sqfs_ll_op_forget;
+    sqfs_ll_ops.statfs = stfs_ll_op_statfs;
 
     /* PARSE ARGS */
     args.argc = argc;
@@ -796,7 +852,7 @@ int fusefs_main(int argc, char *argv[], void (*mounted) (void)) {
                                &fuse_cmdline_opts.mt,
                                &fuse_cmdline_opts.foreground) == -1)
 #endif
-            sqfs_usage(argv[0], true);
+        sqfs_usage(argv[0], true);
     if (fuse_cmdline_opts.mountpoint == NULL)
         sqfs_usage(argv[0], true);
 
@@ -859,17 +915,345 @@ int fusefs_main(int argc, char *argv[], void (*mounted) (void)) {
         rmdir(fuse_cmdline_opts.mountpoint);
     free(ll);
     free(fuse_cmdline_opts.mountpoint);
-    
+
     return -err;
 }
 
-int main(int argc, char *argv[]) {
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//  WjCryptLib_Md5
+//
+//  Implementation of MD5 hash function. Originally written by Alexander Peslyak. Modified by WaterJuice retaining
+//  Public Domain license.
+//
+//  This is free and unencumbered software released into the public domain - June 2013 waterjuice.org
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//  INTERNAL FUNCTIONS
+
+//  F, G, H, I
+//
+//  The basic MD5 functions. F and G are optimised compared to their RFC 1321 definitions for architectures that lack
+//  an AND-NOT instruction, just like in Colin Plumb's implementation.
+#define F(x, y, z)            ( (z) ^ ((x) & ((y) ^ (z))) )
+#define G(x, y, z)            ( (y) ^ ((z) & ((x) ^ (y))) )
+#define H(x, y, z)            ( (x) ^ (y) ^ (z) )
+#define I(x, y, z)            ( (y) ^ ((x) | ~(z)) )
+
+//  STEP
+//
+//  The MD5 transformation for all four rounds.
+#define STEP(f, a, b, c, d, x, t, s)                          \
+(a) += f((b), (c), (d)) + (x) + (t);                        \
+(a) = (((a) << (s)) | (((a) & 0xffffffff) >> (32 - (s))));  \
+(a) += (b);
+
+//  TransformFunction
+//
+//  This processes one or more 64-byte data blocks, but does NOT update the bit counters. There are no alignment
+//  requirements.
+static
+void*
+TransformFunction
+        (
+                Md5Context* ctx,
+                void const* data,
+                uintmax_t size
+        ) {
+    uint8_t* ptr;
+    uint32_t a;
+    uint32_t b;
+    uint32_t c;
+    uint32_t d;
+    uint32_t saved_a;
+    uint32_t saved_b;
+    uint32_t saved_c;
+    uint32_t saved_d;
+
+#define GET(n) (ctx->block[(n)])
+#define SET(n) (ctx->block[(n)] =             \
+    ((uint32_t)ptr[(n)*4 + 0] << 0 )      \
+    |   ((uint32_t)ptr[(n)*4 + 1] << 8 )      \
+    |   ((uint32_t)ptr[(n)*4 + 2] << 16)      \
+    |   ((uint32_t)ptr[(n)*4 + 3] << 24) )
+
+    ptr = (uint8_t*) data;
+
+    a = ctx->a;
+    b = ctx->b;
+    c = ctx->c;
+    d = ctx->d;
+
+    do {
+        saved_a = a;
+        saved_b = b;
+        saved_c = c;
+        saved_d = d;
+
+        // Round 1
+        STEP(F, a, b, c, d, SET(0), 0xd76aa478, 7)
+        STEP(F, d, a, b, c, SET(1), 0xe8c7b756, 12)
+        STEP(F, c, d, a, b, SET(2), 0x242070db, 17)
+        STEP(F, b, c, d, a, SET(3), 0xc1bdceee, 22)
+        STEP(F, a, b, c, d, SET(4), 0xf57c0faf, 7)
+        STEP(F, d, a, b, c, SET(5), 0x4787c62a, 12)
+        STEP(F, c, d, a, b, SET(6), 0xa8304613, 17)
+        STEP(F, b, c, d, a, SET(7), 0xfd469501, 22)
+        STEP(F, a, b, c, d, SET(8), 0x698098d8, 7)
+        STEP(F, d, a, b, c, SET(9), 0x8b44f7af, 12)
+        STEP(F, c, d, a, b, SET(10), 0xffff5bb1, 17)
+        STEP(F, b, c, d, a, SET(11), 0x895cd7be, 22)
+        STEP(F, a, b, c, d, SET(12), 0x6b901122, 7)
+        STEP(F, d, a, b, c, SET(13), 0xfd987193, 12)
+        STEP(F, c, d, a, b, SET(14), 0xa679438e, 17)
+        STEP(F, b, c, d, a, SET(15), 0x49b40821, 22)
+
+        // Round 2
+        STEP(G, a, b, c, d, GET(1), 0xf61e2562, 5)
+        STEP(G, d, a, b, c, GET(6), 0xc040b340, 9)
+        STEP(G, c, d, a, b, GET(11), 0x265e5a51, 14)
+        STEP(G, b, c, d, a, GET(0), 0xe9b6c7aa, 20)
+        STEP(G, a, b, c, d, GET(5), 0xd62f105d, 5)
+        STEP(G, d, a, b, c, GET(10), 0x02441453, 9)
+        STEP(G, c, d, a, b, GET(15), 0xd8a1e681, 14)
+        STEP(G, b, c, d, a, GET(4), 0xe7d3fbc8, 20)
+        STEP(G, a, b, c, d, GET(9), 0x21e1cde6, 5)
+        STEP(G, d, a, b, c, GET(14), 0xc33707d6, 9)
+        STEP(G, c, d, a, b, GET(3), 0xf4d50d87, 14)
+        STEP(G, b, c, d, a, GET(8), 0x455a14ed, 20)
+        STEP(G, a, b, c, d, GET(13), 0xa9e3e905, 5)
+        STEP(G, d, a, b, c, GET(2), 0xfcefa3f8, 9)
+        STEP(G, c, d, a, b, GET(7), 0x676f02d9, 14)
+        STEP(G, b, c, d, a, GET(12), 0x8d2a4c8a, 20)
+
+        // Round 3
+        STEP(H, a, b, c, d, GET(5), 0xfffa3942, 4)
+        STEP(H, d, a, b, c, GET(8), 0x8771f681, 11)
+        STEP(H, c, d, a, b, GET(11), 0x6d9d6122, 16)
+        STEP(H, b, c, d, a, GET(14), 0xfde5380c, 23)
+        STEP(H, a, b, c, d, GET(1), 0xa4beea44, 4)
+        STEP(H, d, a, b, c, GET(4), 0x4bdecfa9, 11)
+        STEP(H, c, d, a, b, GET(7), 0xf6bb4b60, 16)
+        STEP(H, b, c, d, a, GET(10), 0xbebfbc70, 23)
+        STEP(H, a, b, c, d, GET(13), 0x289b7ec6, 4)
+        STEP(H, d, a, b, c, GET(0), 0xeaa127fa, 11)
+        STEP(H, c, d, a, b, GET(3), 0xd4ef3085, 16)
+        STEP(H, b, c, d, a, GET(6), 0x04881d05, 23)
+        STEP(H, a, b, c, d, GET(9), 0xd9d4d039, 4)
+        STEP(H, d, a, b, c, GET(12), 0xe6db99e5, 11)
+        STEP(H, c, d, a, b, GET(15), 0x1fa27cf8, 16)
+        STEP(H, b, c, d, a, GET(2), 0xc4ac5665, 23)
+
+        // Round 4
+        STEP(I, a, b, c, d, GET(0), 0xf4292244, 6)
+        STEP(I, d, a, b, c, GET(7), 0x432aff97, 10)
+        STEP(I, c, d, a, b, GET(14), 0xab9423a7, 15)
+        STEP(I, b, c, d, a, GET(5), 0xfc93a039, 21)
+        STEP(I, a, b, c, d, GET(12), 0x655b59c3, 6)
+        STEP(I, d, a, b, c, GET(3), 0x8f0ccc92, 10)
+        STEP(I, c, d, a, b, GET(10), 0xffeff47d, 15)
+        STEP(I, b, c, d, a, GET(1), 0x85845dd1, 21)
+        STEP(I, a, b, c, d, GET(8), 0x6fa87e4f, 6)
+        STEP(I, d, a, b, c, GET(15), 0xfe2ce6e0, 10)
+        STEP(I, c, d, a, b, GET(6), 0xa3014314, 15)
+        STEP(I, b, c, d, a, GET(13), 0x4e0811a1, 21)
+        STEP(I, a, b, c, d, GET(4), 0xf7537e82, 6)
+        STEP(I, d, a, b, c, GET(11), 0xbd3af235, 10)
+        STEP(I, c, d, a, b, GET(2), 0x2ad7d2bb, 15)
+        STEP(I, b, c, d, a, GET(9), 0xeb86d391, 21)
+
+        a += saved_a;
+        b += saved_b;
+        c += saved_c;
+        d += saved_d;
+
+        ptr += 64;
+    } while (size -= 64);
+
+    ctx->a = a;
+    ctx->b = b;
+    ctx->c = c;
+    ctx->d = d;
+
+#undef GET
+#undef SET
+
+    return ptr;
+}
+
+//  Md5Initialise
+//
+//  Initialises an MD5 Context. Use this to initialise/reset a context.
+void
+Md5Initialise
+        (
+                Md5Context* Context         // [out]
+        ) {
+    Context->a = 0x67452301;
+    Context->b = 0xefcdab89;
+    Context->c = 0x98badcfe;
+    Context->d = 0x10325476;
+
+    Context->lo = 0;
+    Context->hi = 0;
+}
+
+//  Md5Update
+//
+//  Adds data to the MD5 context. This will process the data and update the internal state of the context. Keep on
+//  calling this function until all the data has been added. Then call Md5Finalise to calculate the hash.
+void
+Md5Update
+        (
+                Md5Context* Context,        // [in out]
+                void const* Buffer,         // [in]
+                uint32_t BufferSize      // [in]
+        ) {
+    uint32_t saved_lo;
+    uint32_t used;
+    uint32_t free;
+
+    saved_lo = Context->lo;
+    if ((Context->lo = (saved_lo + BufferSize) & 0x1fffffff) < saved_lo) {
+        Context->hi++;
+    }
+    Context->hi += (uint32_t) (BufferSize >> 29);
+
+    used = saved_lo & 0x3f;
+
+    if (used) {
+        free = 64 - used;
+
+        if (BufferSize < free) {
+            memcpy(&Context->buffer[used], Buffer, BufferSize);
+            return;
+        }
+
+        memcpy(&Context->buffer[used], Buffer, free);
+        Buffer = (uint8_t*) Buffer + free;
+        BufferSize -= free;
+        TransformFunction(Context, Context->buffer, 64);
+    }
+
+    if (BufferSize >= 64) {
+        Buffer = TransformFunction(Context, Buffer, BufferSize & ~(unsigned long) 0x3f);
+        BufferSize &= 0x3f;
+    }
+
+    memcpy(Context->buffer, Buffer, BufferSize);
+}
+
+//  Md5Finalise
+//
+//  Performs the final calculation of the hash and returns the digest (16 byte buffer containing 128bit hash). After
+//  calling this, Md5Initialised must be used to reuse the context.
+void
+Md5Finalise
+        (
+                Md5Context* Context,        // [in out]
+                MD5_HASH* Digest          // [in]
+        ) {
+    uint32_t used;
+    uint32_t free;
+
+    used = Context->lo & 0x3f;
+
+    Context->buffer[used++] = 0x80;
+
+    free = 64 - used;
+
+    if (free < 8) {
+        memset(&Context->buffer[used], 0, free);
+        TransformFunction(Context, Context->buffer, 64);
+        used = 0;
+        free = 64;
+    }
+
+    memset(&Context->buffer[used], 0, free - 8);
+
+    Context->lo <<= 3;
+    Context->buffer[56] = (uint8_t) (Context->lo);
+    Context->buffer[57] = (uint8_t) (Context->lo >> 8);
+    Context->buffer[58] = (uint8_t) (Context->lo >> 16);
+    Context->buffer[59] = (uint8_t) (Context->lo >> 24);
+    Context->buffer[60] = (uint8_t) (Context->hi);
+    Context->buffer[61] = (uint8_t) (Context->hi >> 8);
+    Context->buffer[62] = (uint8_t) (Context->hi >> 16);
+    Context->buffer[63] = (uint8_t) (Context->hi >> 24);
+
+    TransformFunction(Context, Context->buffer, 64);
+
+    Digest->bytes[0] = (uint8_t) (Context->a);
+    Digest->bytes[1] = (uint8_t) (Context->a >> 8);
+    Digest->bytes[2] = (uint8_t) (Context->a >> 16);
+    Digest->bytes[3] = (uint8_t) (Context->a >> 24);
+    Digest->bytes[4] = (uint8_t) (Context->b);
+    Digest->bytes[5] = (uint8_t) (Context->b >> 8);
+    Digest->bytes[6] = (uint8_t) (Context->b >> 16);
+    Digest->bytes[7] = (uint8_t) (Context->b >> 24);
+    Digest->bytes[8] = (uint8_t) (Context->c);
+    Digest->bytes[9] = (uint8_t) (Context->c >> 8);
+    Digest->bytes[10] = (uint8_t) (Context->c >> 16);
+    Digest->bytes[11] = (uint8_t) (Context->c >> 24);
+    Digest->bytes[12] = (uint8_t) (Context->d);
+    Digest->bytes[13] = (uint8_t) (Context->d >> 8);
+    Digest->bytes[14] = (uint8_t) (Context->d >> 16);
+    Digest->bytes[15] = (uint8_t) (Context->d >> 24);
+}
+
+//  Md5Calculate
+//
+//  Combines Md5Initialise, Md5Update, and Md5Finalise into one function. Calculates the MD5 hash of the buffer.
+void
+Md5Calculate
+        (
+                void const* Buffer,         // [in]
+                uint32_t BufferSize,     // [in]
+                MD5_HASH* Digest          // [in]
+        ) {
+    Md5Context context;
+
+    Md5Initialise(&context);
+    Md5Update(&context, Buffer, BufferSize);
+    Md5Finalise(&context, Digest);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//  End of WjCryptLib_Md5
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+char* appimage_hexlify(const char* bytes, const size_t numBytes) {
+    // first of all, allocate the new string
+    // a hexadecimal representation works like "every byte will be represented by two chars"
+    // additionally, we need to null-terminate the string
+    char* hexlified = (char*) calloc((2 * numBytes + 1), sizeof(char));
+
+    for (size_t i = 0; i < numBytes; i++) {
+        char buffer[3];
+        sprintf(buffer, "%02x", (unsigned char) bytes[i]);
+        strcat(hexlified, buffer);
+    }
+
+    return hexlified;
+}
+
+int main(int argc, char* argv[]) {
     char appimage_path[PATH_MAX];
     char argv0_path[PATH_MAX];
-    char * arg;
+    char* arg;
 
-    strcpy(appimage_path, "/proc/self/exe");
-    strcpy(argv0_path, argv[0]);
+    /* We might want to operate on a target appimage rather than this file itself,
+     * e.g., for appimaged which must not run untrusted code from random AppImages.
+     * This variable is intended for use by e.g., appimaged and is subject to
+     * change any time. Do not rely on it being present. We might even limit this
+     * functionality specifically for builds used by appimaged.
+     */
+    if (getenv("TARGET_APPIMAGE") == NULL) {
+        strcpy(appimage_path, "/proc/self/exe");
+        strcpy(argv0_path, argv[0]);
+    } else {
+        strcpy(appimage_path, getenv("TARGET_APPIMAGE"));
+        strcpy(argv0_path, getenv("TARGET_APPIMAGE"));
+    }
 
     // temporary directories are required in a few places
     // therefore we implement the detection of the temp base dir at the top of the code to avoid redundancy
@@ -889,18 +1273,31 @@ int main(int argc, char *argv[]) {
         exit(EXIT_EXECERROR);
     }
 
-    arg=getArg(argc,argv,'-');
+    arg = getArg(argc, argv, '-');
+
+    /* Print the help and then exit */
+    if (arg && strcmp(arg, "appimage-help") == 0) {
+        char fullpath[PATH_MAX];
+
+        ssize_t length = readlink(appimage_path, fullpath, sizeof(fullpath));
+        if (length < 0) {
+            fprintf(stderr, "Error getting realpath for %s\n", appimage_path);
+            exit(EXIT_EXECERROR);
+        }
+        fullpath[length] = '\0';
+
+        print_help(fullpath);
+        exit(0);
+    }
 
     /* Just print the offset and then exit */
-    if(arg && strcmp(arg,"squashfs-offset")==0) {
+    if (arg && strcmp(arg, "appimage-offset") == 0) {
         printf("%zu\n", fs_offset);
         exit(0);
     }
 
-    arg=getArg(argc,argv,'-');
-
-    /* extract the squashfs file */
-    if(arg && strcmp(arg,"squashfs-extract")==0) {
+    /* extract the AppImage */
+    if (arg && strcmp(arg, "appimage-extract") == 0) {
         char* pattern;
 
         // default use case: use standard prefix
@@ -910,11 +1307,11 @@ int main(int argc, char *argv[]) {
             pattern = argv[2];
         } else {
             fprintf(stderr, "Unexpected argument count: %d\n", argc - 1);
-            fprintf(stderr, "Usage: %s --extract [<prefix>]\n", argv0_path);
+            fprintf(stderr, "Usage: %s --appimage-extract [<prefix>]\n", argv0_path);
             exit(1);
         }
 
-        if (!extract_appimage(appimage_path, "spack/", pattern, true, true)) {
+        if (!extract_appimage(appimage_path, "squashfs-root/", pattern, true, true)) {
             exit(1);
         }
 
@@ -922,15 +1319,142 @@ int main(int argc, char *argv[]) {
     }
 
     // calculate full path of AppImage
+    int length;
     char fullpath[PATH_MAX];
 
-    // If we are operating on this file itself
-    ssize_t len = readlink(appimage_path, fullpath, sizeof(fullpath));
-    if (len < 0) {
-        perror("Failed to obtain absolute path");
-        exit(EXIT_EXECERROR);
+    if (getenv("TARGET_APPIMAGE") == NULL) {
+        // If we are operating on this file itself
+        ssize_t len = readlink(appimage_path, fullpath, sizeof(fullpath));
+        if (len < 0) {
+            perror("Failed to obtain absolute path");
+            exit(EXIT_EXECERROR);
+        }
+        fullpath[len] = '\0';
+    } else {
+        char* abspath = realpath(appimage_path, NULL);
+        if (abspath == NULL) {
+            perror("Failed to obtain absolute path");
+            exit(EXIT_EXECERROR);
+        }
+        strcpy(fullpath, abspath);
+        free(abspath);
     }
-    fullpath[len] = '\0';
+
+    if (getenv("APPIMAGE_EXTRACT_AND_RUN") != NULL || (arg && strcmp(arg, "appimage-extract-and-run") == 0)) {
+        char* hexlified_digest = NULL;
+
+        // calculate MD5 hash of file, and use it to make extracted directory name "content-aware"
+        // see https://github.com/AppImage/AppImageKit/issues/841 for more information
+        {
+            FILE* f = fopen(appimage_path, "rb");
+            if (f == NULL) {
+                perror("Failed to open AppImage file");
+                exit(EXIT_EXECERROR);
+            }
+
+            Md5Context ctx;
+            Md5Initialise(&ctx);
+
+            char buf[4096];
+            for (size_t bytes_read; (bytes_read = fread(buf, sizeof(char), sizeof(buf), f)); bytes_read > 0) {
+                Md5Update(&ctx, buf, (uint32_t) bytes_read);
+            }
+
+            MD5_HASH digest;
+            Md5Finalise(&ctx, &digest);
+
+            hexlified_digest = appimage_hexlify(digest.bytes, sizeof(digest.bytes));
+        }
+
+        char* prefix = malloc(strlen(temp_base) + 20 + strlen(hexlified_digest) + 2);
+        strcpy(prefix, temp_base);
+        strcat(prefix, "/appimage_extracted_");
+        strcat(prefix, hexlified_digest);
+        free(hexlified_digest);
+
+        const bool verbose = (getenv("VERBOSE") != NULL);
+
+        if (!extract_appimage(appimage_path, prefix, NULL, false, verbose)) {
+            fprintf(stderr, "Failed to extract AppImage\n");
+            exit(EXIT_EXECERROR);
+        }
+
+        int pid;
+        if ((pid = fork()) == -1) {
+            int error = errno;
+            fprintf(stderr, "fork() failed: %s\n", strerror(error));
+            exit(EXIT_EXECERROR);
+        } else if (pid == 0) {
+            const char apprun_fname[] = "AppRun";
+            char* apprun_path = malloc(strlen(prefix) + 1 + strlen(apprun_fname) + 1);
+            strcpy(apprun_path, prefix);
+            strcat(apprun_path, "/");
+            strcat(apprun_path, apprun_fname);
+
+            // create copy of argument list without the --appimage-extract-and-run parameter
+            char* new_argv[argc];
+            int new_argc = 0;
+            new_argv[new_argc++] = strdup(apprun_path);
+            for (int i = 1; i < argc; ++i) {
+                if (strcmp(argv[i], "--appimage-extract-and-run") != 0) {
+                    new_argv[new_argc++] = strdup(argv[i]);
+                }
+            }
+            new_argv[new_argc] = NULL;
+
+            /* Setting some environment variables that the app "inside" might use */
+            setenv("APPIMAGE", fullpath, 1);
+            setenv("ARGV0", argv0_path, 1);
+            setenv("APPDIR", prefix, 1);
+
+            execv(apprun_path, new_argv);
+
+            int error = errno;
+            fprintf(stderr, "Failed to run %s: %s\n", apprun_path, strerror(error));
+
+            free(apprun_path);
+            exit(EXIT_EXECERROR);
+        }
+
+        int status = 0;
+        int rv = waitpid(pid, &status, 0);
+        status = rv > 0 && WIFEXITED (status) ? WEXITSTATUS (status) : EXIT_EXECERROR;
+
+        if (getenv("NO_CLEANUP") == NULL) {
+            if (!rm_recursive(prefix)) {
+                fprintf(stderr, "Failed to clean up cache directory\n");
+                if (status == 0)        /* avoid messing existing failure exit status */
+                    status = EXIT_EXECERROR;
+            }
+        }
+
+        // template == prefix, must be freed only once
+        free(prefix);
+
+        exit(status);
+    }
+
+    if (arg && (strcmp(arg, "appimage-updateinformation") == 0 || strcmp(arg, "appimage-updateinfo") == 0)) {
+        fprintf(stderr, "--%s is not yet implemented in version %s\n", arg, GIT_COMMIT);
+        // NOTE: Must be implemented in this .c file with no additional dependencies
+        exit(1);
+    }
+
+    if (arg && strcmp(arg, "appimage-signature") == 0) {
+        fprintf(stderr, "--%s is not yet implemented in version %s\n", arg, GIT_COMMIT);
+        // NOTE: Must be implemented in this .c file with no additional dependencies
+        exit(1);
+    }
+
+    portable_option(arg, appimage_path, "home");
+    portable_option(arg, appimage_path, "config");
+
+    // If there is an argument starting with appimage- (but not appimage-mount which is handled further down)
+    // then stop here and print an error message
+    if ((arg && strncmp(arg, "appimage-", 8) == 0) && (arg && strcmp(arg, "appimage-mount") != 0)) {
+        fprintf(stderr, "--%s is not yet implemented in version %s\n", arg, GIT_COMMIT);
+        exit(1);
+    }
 
     int dir_fd, res;
 
@@ -943,34 +1467,34 @@ int main(int argc, char *argv[]) {
 
     size_t mount_dir_size = strlen(mount_dir);
     pid_t pid;
-    char **real_argv;
+    char** real_argv;
     int i;
 
     if (mkdtemp(mount_dir) == NULL) {
-        perror ("create mount dir error");
-        exit (EXIT_EXECERROR);
+        perror("create mount dir error");
+        exit(EXIT_EXECERROR);
     }
 
-    if (pipe (keepalive_pipe) == -1) {
-        perror ("pipe error");
-        exit (EXIT_EXECERROR);
+    if (pipe(keepalive_pipe) == -1) {
+        perror("pipe error");
+        exit(EXIT_EXECERROR);
     }
 
-    pid = fork ();
+    pid = fork();
     if (pid == -1) {
-        perror ("fork error");
-        exit (EXIT_EXECERROR);
+        perror("fork error");
+        exit(EXIT_EXECERROR);
     }
 
     if (pid == 0) {
         /* in child */
 
-        char *child_argv[5];
+        char* child_argv[5];
 
         /* close read pipe */
-        close (keepalive_pipe[0]);
+        close(keepalive_pipe[0]);
 
-        char *dir = realpath(appimage_path, NULL );
+        char* dir = realpath(appimage_path, NULL);
 
         char options[100];
         sprintf(options, "ro,offset=%zu", fs_offset);
@@ -981,11 +1505,14 @@ int main(int argc, char *argv[]) {
         child_argv[3] = dir;
         child_argv[4] = mount_dir;
 
-        if(0 != fusefs_main (5, child_argv, fuse_mounted)){
-            char *title;
-            char *body;
-            title = "Cannot mount squashfs, make sure you have fusermount in your path.";
-            body = "If everything fails, use --squashfs-extract to extract in the current directory";
+        if (0 != fusefs_main(5, child_argv, fuse_mounted)) {
+            char* title;
+            char* body;
+            title = "Cannot mount AppImage, please check your FUSE setup.";
+            body = "You might still be able to extract the contents of this AppImage \n"
+                   "if you run it with the --appimage-extract option. \n"
+                   "See https://github.com/AppImage/AppImageKit/wiki/FUSE \n"
+                   "for more information";
             printf("\n%s\n", title);
             printf("%s\n", body);
         };
@@ -994,34 +1521,34 @@ int main(int argc, char *argv[]) {
         int c;
 
         /* close write pipe */
-        close (keepalive_pipe[1]);
+        close(keepalive_pipe[1]);
 
         /* Pause until mounted */
-        read (keepalive_pipe[0], &c, 1);
+        read(keepalive_pipe[0], &c, 1);
 
         /* Fuse process has now daemonized, reap our child */
         waitpid(pid, NULL, 0);
 
-        dir_fd = open (mount_dir, O_RDONLY);
+        dir_fd = open(mount_dir, O_RDONLY);
         if (dir_fd == -1) {
-            perror ("open dir error");
-            exit (EXIT_EXECERROR);
+            perror("open dir error");
+            exit(EXIT_EXECERROR);
         }
 
-        res = dup2 (dir_fd, 1023);
+        res = dup2(dir_fd, 1023);
         if (res == -1) {
-            perror ("dup2 error");
-            exit (EXIT_EXECERROR);
+            perror("dup2 error");
+            exit(EXIT_EXECERROR);
         }
-        close (dir_fd);
+        close(dir_fd);
 
-        real_argv = malloc (sizeof (char *) * (argc + 1));
+        real_argv = malloc(sizeof(char*) * (argc + 1));
         for (i = 0; i < argc; i++) {
             real_argv[i] = argv[i];
         }
         real_argv[i] = NULL;
 
-        if(arg && strcmp(arg, "appimage-mount") == 0) {
+        if (arg && strcmp(arg, "appimage-mount") == 0) {
             char real_mount_dir[PATH_MAX];
 
             if (realpath(mount_dir, real_mount_dir) == real_mount_dir) {
@@ -1041,22 +1568,41 @@ int main(int argc, char *argv[]) {
         }
 
         /* Setting some environment variables that the app "inside" might use */
-        setenv( "APPIMAGE", fullpath, 1 );
-        setenv( "ARGV0", argv0_path, 1 );
-        setenv( "APPDIR", mount_dir, 1 );
+        setenv("APPIMAGE", fullpath, 1);
+        setenv("ARGV0", argv0_path, 1);
+        setenv("APPDIR", mount_dir, 1);
+
+        char portable_home_dir[PATH_MAX];
+        char portable_config_dir[PATH_MAX];
+
+        /* If there is a directory with the same name as the AppImage plus ".home", then export $HOME */
+        strcpy(portable_home_dir, fullpath);
+        strcat(portable_home_dir, ".home");
+        if (is_writable_directory(portable_home_dir)) {
+            fprintf(stderr, "Setting $HOME to %s\n", portable_home_dir);
+            setenv("HOME", portable_home_dir, 1);
+        }
+
+        /* If there is a directory with the same name as the AppImage plus ".config", then export $XDG_CONFIG_HOME */
+        strcpy(portable_config_dir, fullpath);
+        strcat(portable_config_dir, ".config");
+        if (is_writable_directory(portable_config_dir)) {
+            fprintf(stderr, "Setting $XDG_CONFIG_HOME to %s\n", portable_config_dir);
+            setenv("XDG_CONFIG_HOME", portable_config_dir, 1);
+        }
 
         /* Original working directory */
         char cwd[1024];
         if (getcwd(cwd, sizeof(cwd)) != NULL) {
-            setenv( "OWD", cwd, 1 );
+            setenv("OWD", cwd, 1);
         }
 
         char filename[mount_dir_size + 8]; /* enough for mount_dir + "/AppRun" */
-        strcpy (filename, mount_dir);
-        strcat (filename, "/AppRun");
+        strcpy(filename, mount_dir);
+        strcat(filename, "/AppRun");
 
         /* TODO: Find a way to get the exit status and/or output of this */
-        execv (filename, real_argv);
+        execv(filename, real_argv);
         /* Error if we continue here */
         perror("execv error");
         exit(EXIT_EXECERROR);

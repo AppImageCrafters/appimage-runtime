@@ -7,7 +7,7 @@ if ("${STATIC}")
 endif ()
 
 target_link_libraries(runtime libfuse::static squashfuse::static zstd::static zlib::static ${EXTRA_LINK_ARGS})
-target_compile_definitions(runtime PRIVATE -D_FILE_OFFSET_BITS=64)
+target_compile_definitions(runtime PRIVATE -D_FILE_OFFSET_BITS=64 -DGIT_COMMIT="${GIT_COMMIT}")
 
 # add type 2 magic bytes
 set(MAGIC_BYTES_FILE ${CMAKE_CURRENT_BINARY_DIR}/type2_magic_bytes)
