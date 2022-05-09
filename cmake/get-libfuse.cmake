@@ -9,6 +9,8 @@ externalproject_add(
     UPDATE_DISCONNECTED true
     CONFIGURE_HANDLED_BY_BUILD true
     CONFIGURE_COMMAND
+        CC=${CMAKE_C_COMPILER}
+        LDFLAGS=-static
         meson <SOURCE_DIR>
             -D default_library=static
             -D libdir=lib
@@ -21,7 +23,8 @@ externalproject_add(
             -D c_link_args=-static
             -D prefix=${EXTERNAL_TARGETS_PREFIX}
             -D buildtype=minsize
-    BUILD_COMMAND ninja
+            -D debug=false
+    BUILD_COMMAND CC=${CMAKE_C_COMPILER} ninja
     INSTALL_COMMAND ninja install
     BYPRODUCTS "${FUSE_LIBS}"
     TEST_COMMAND ""

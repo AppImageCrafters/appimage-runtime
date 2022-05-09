@@ -12,14 +12,16 @@ externalproject_add(
     CONFIGURE_HANDLED_BY_BUILD true
     CONFIGURE_COMMAND
         # additional header dir need to allow `#include <fuse3/fuse.h>`
+        CC=${CMAKE_C_COMPILER}
         CFLAGS=-I${EXTERNAL_TARGETS_PREFIX}/include
-        LDFLAGS=-static
+        LDFLAGS=-L${EXTERNAL_TARGETS_PREFIX}/lib
         PKG_CONFIG_PATH=${PKG_CONFIG_PATH}
         <SOURCE_DIR>/configure prefix=${EXTERNAL_TARGETS_PREFIX}
             --enable-shared=no
             --enable-static=yes
             --disable-demo
             --with-pic=no-PIC
+            --host=${HOST}
     BUILD_COMMAND make
     INSTALL_COMMAND make install
     BYPRODUCTS "${SQUASHFUSE_LIBS}"

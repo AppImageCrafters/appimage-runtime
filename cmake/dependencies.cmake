@@ -12,6 +12,7 @@ include(cmake/get-zstd.cmake)
 
 include(cmake/get-libfuse.cmake)
 add_dependencies(libfuse zlib)
+add_dependencies(libfuse zstd)
 
 include(cmake/get-squashfuse.cmake)
 add_dependencies(squashfuse libfuse)
