@@ -1,0 +1,15 @@
+diff --git a/lib/mount.c b/lib/mount.c
+index 979f8d9..4bb19a0 100644
+--- a/lib/mount.c
++++ b/lib/mount.c
+@@ -118,6 +118,10 @@ static void exec_fusermount(const char *argv[])
+ {
+ 	execv(FUSERMOUNT_DIR "/" FUSERMOUNT_PROG, (char **) argv);
+ 	execvp(FUSERMOUNT_PROG, (char **) argv);
++
++    // fallback to fusermount2
++    execv(FUSERMOUNT_DIR "/fusermount", (char **) argv);
++    execvp("fusermount", (char **) argv);
+ }
+ 
+ void fuse_mount_version(void)

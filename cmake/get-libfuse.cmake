@@ -8,6 +8,7 @@ externalproject_add(
     GIT_TAG fuse-3.11.0
     UPDATE_DISCONNECTED true
     CONFIGURE_HANDLED_BY_BUILD true
+    PATCH_COMMAND git apply ${CMAKE_SOURCE_DIR}/patches/fusermount2_fallback.patch
     CONFIGURE_COMMAND
         CC=${CMAKE_C_COMPILER}
         LDFLAGS=-static
