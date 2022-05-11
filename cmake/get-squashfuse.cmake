@@ -22,7 +22,7 @@ externalproject_add(
             --disable-demo
             --with-pic=no-PIC
             --host=${HOST}
-    BUILD_COMMAND make
+    BUILD_COMMAND make -j ${PROCESSOR_COUNT}
     INSTALL_COMMAND make install
     BYPRODUCTS "${SQUASHFUSE_LIBS}"
     TEST_COMMAND ""

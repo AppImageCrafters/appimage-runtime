@@ -7,6 +7,9 @@ set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
 # the EXTERNAL_TARGETS_PREFIX will be used as install location for libfuse and squashfuse
 set(EXTERNAL_TARGETS_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/external)
 
+include(ProcessorCount)
+ProcessorCount(PROCESSOR_COUNT)
+
 include(cmake/get-zlib.cmake)
 include(cmake/get-zstd.cmake)
 

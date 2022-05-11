@@ -25,7 +25,7 @@ externalproject_add(
             -D prefix=${EXTERNAL_TARGETS_PREFIX}
             -D buildtype=minsize
             -D debug=false
-    BUILD_COMMAND CC=${CMAKE_C_COMPILER} ninja
+    BUILD_COMMAND CC=${CMAKE_C_COMPILER} ninja -j ${PROCESSOR_COUNT}
     INSTALL_COMMAND ninja install
     BYPRODUCTS "${FUSE_LIBS}"
     TEST_COMMAND ""
