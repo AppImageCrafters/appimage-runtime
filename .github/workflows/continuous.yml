@@ -29,3 +29,11 @@ jobs:
         if: (matrix.HOST == 'x86_64-linux-musl') || (matrix.HOST == 'i686-linux-musl')
         working-directory: ${{github.workspace}}/build
         run: src/runtime --appimage-help
+
+      - name: Prepare artifact
+        run: mv src/runtime runtime-${{ matrix.HOST }}
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: runtime
+          path: runtime-${{ matrix.HOST }}
