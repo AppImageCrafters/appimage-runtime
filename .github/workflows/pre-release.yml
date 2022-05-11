@@ -55,9 +55,9 @@ jobs:
         uses: marvinpinto/action-automatic-releases@latest
 
         with:
-          title: Continuous build
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
           automatic_release_tag: 'continuous'
           prerelease: true
           draft: false
+          title: Continuous build
           files: ./*
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
