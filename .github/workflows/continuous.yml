@@ -36,7 +36,7 @@ jobs:
         run: src/runtime --appimage-help
 
       - name: Prepare artifact
-        run: mv src/runtime runtime-${{ matrix.HOST }}
+        run: mv ${{github.workspace}}/build/src/runtime runtime-${{ matrix.HOST }}
 
       - uses: actions/upload-artifact@v3
         with:
