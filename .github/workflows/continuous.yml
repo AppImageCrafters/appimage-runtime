@@ -26,5 +26,6 @@ jobs:
         run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
       - name: Test
+        if: (matrix.HOST == 'x86_64-linux-musl') || (matrix.HOST == 'i686-linux-musl')
         working-directory: ${{github.workspace}}/build
         run: src/runtime --appimage-help
